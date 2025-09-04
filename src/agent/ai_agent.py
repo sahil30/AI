@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import Dict, List, Any, Optional
 from openai import OpenAI
 
@@ -8,6 +9,7 @@ from ..integrations import (
     JiraIntegration, ConfluenceIntegration, JavaProcessor,
     AdaptiveJiraIntegration, AdaptiveConfluenceIntegration, CustomAPIIntegration
 )
+from ..mcp_client import MCPManager
 
 logger = logging.getLogger(__name__)
 
@@ -15,13 +17,26 @@ class AIAgent:
     def __init__(self):
         self.openai_client = OpenAI(api_key=config.openai.api_key)
         
+        # Initialize MCP manager if MCP servers are enabled
+        self.mcp_manager = None
+        if config.use_mcp_servers:
+            jira_path = config.mcp.jira_server_path or "../mcp-jira-python"
+            confluence_path = config.mcp.confluence_server_path or "../mcp-confluence-python"
+            self.mcp_manager = MCPManager(jira_path, confluence_path)
+        
         # Use adaptive integrations that can work with both standard and custom APIs
-        self.jira = AdaptiveJiraIntegration()
-        self.confluence = AdaptiveConfluenceIntegration()
+        # Only initialize these if not using MCP servers
+        if not config.use_mcp_servers:
+            self.jira = AdaptiveJiraIntegration()
+            self.confluence = AdaptiveConfluenceIntegration()
+        else:
+            self.jira = None
+            self.confluence = None
+            
         self.java_processor = JavaProcessor()
         
         # Also store direct access to custom API if available
-        if config.use_custom_api:
+        if config.use_custom_api and not config.use_mcp_servers:
             self.custom_api = CustomAPIIntegration()
         else:
             self.custom_api = None
@@ -31,6 +46,33 @@ class AIAgent:
             level=getattr(logging, config.agent.log_level),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
+
+    async def start(self):
+        """Start the AI agent and any MCP servers."""
+        if self.mcp_manager:
+            logger.info("Starting MCP servers...")
+            success = await self.mcp_manager.start()
+            if success:
+                logger.info("MCP servers started successfully")
+            else:
+                logger.error("Failed to start MCP servers")
+                raise Exception("Failed to start MCP servers")
+
+    async def stop(self):
+        """Stop the AI agent and any MCP servers."""
+        if self.mcp_manager:
+            logger.info("Stopping MCP servers...")
+            await self.mcp_manager.stop()
+            logger.info("MCP servers stopped")
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.stop()
 
     async def process_command(self, command: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Process a natural language command and execute appropriate actions."""
@@ -72,7 +114,12 @@ class AIAgent:
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the AI agent."""
-        api_type = "custom API" if config.use_custom_api else "standard Atlassian APIs"
+        if config.use_mcp_servers:
+            api_type = "MCP servers (Model Context Protocol)"
+        elif config.use_custom_api:
+            api_type = "custom API"
+        else:
+            api_type = "standard Atlassian APIs"
         
         return f"""You are an AI agent that can interact with issue tracking, documentation, and Java code systems.
         You are currently configured to use {api_type} for backend operations.
@@ -291,41 +338,108 @@ class AIAgent:
         try:
             # Jira functions
             if function_name == "jira_get_issue":
-                issue = self.jira.get_issue(function_args["issue_key"])
-                return {"type": "jira_issue", "data": issue}
+                if self.mcp_manager and self.mcp_manager.jira_client:
+                    response = await self.mcp_manager.jira_client.get_issue(function_args["issue_key"])
+                    if response.success:
+                        return {"type": "jira_issue", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    issue = self.jira.get_issue(function_args["issue_key"])
+                    return {"type": "jira_issue", "data": issue}
                 
             elif function_name == "jira_search_issues":
-                results = self.jira.search_issues(function_args["jql"], function_args.get("fields"))
-                return {"type": "jira_search", "data": results}
+                if self.mcp_manager and self.mcp_manager.jira_client:
+                    response = await self.mcp_manager.jira_client.search_issues(
+                        function_args["jql"], 
+                        function_args.get("max_results", 50)
+                    )
+                    if response.success:
+                        return {"type": "jira_search", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    results = self.jira.search_issues(function_args["jql"], function_args.get("fields"))
+                    return {"type": "jira_search", "data": results}
                 
             elif function_name == "jira_create_issue":
-                new_issue = self.jira.create_issue(function_args["project_key"], function_args["issue_data"])
-                return {"type": "jira_issue_created", "data": new_issue}
+                if self.mcp_manager and self.mcp_manager.jira_client:
+                    response = await self.mcp_manager.jira_client.create_issue(
+                        function_args["project_key"], 
+                        function_args["issue_data"]["summary"],
+                        **function_args["issue_data"]
+                    )
+                    if response.success:
+                        return {"type": "jira_issue_created", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    new_issue = self.jira.create_issue(function_args["project_key"], function_args["issue_data"])
+                    return {"type": "jira_issue_created", "data": new_issue}
                 
             elif function_name == "jira_add_comment":
-                comment = self.jira.add_comment(function_args["issue_key"], function_args["comment"])
-                return {"type": "jira_comment_added", "data": comment}
+                if self.mcp_manager and self.mcp_manager.jira_client:
+                    response = await self.mcp_manager.jira_client.add_comment(
+                        function_args["issue_key"], 
+                        function_args["comment"]
+                    )
+                    if response.success:
+                        return {"type": "jira_comment_added", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    comment = self.jira.add_comment(function_args["issue_key"], function_args["comment"])
+                    return {"type": "jira_comment_added", "data": comment}
             
             # Confluence functions
             elif function_name == "confluence_get_page":
-                page = self.confluence.get_page(function_args["page_id"])
-                return {"type": "confluence_page", "data": page}
+                if self.mcp_manager and self.mcp_manager.confluence_client:
+                    response = await self.mcp_manager.confluence_client.get_page(function_args["page_id"])
+                    if response.success:
+                        return {"type": "confluence_page", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    page = self.confluence.get_page(function_args["page_id"])
+                    return {"type": "confluence_page", "data": page}
                 
             elif function_name == "confluence_search_content":
-                content = self.confluence.search_content(
-                    function_args["cql"], 
-                    limit=function_args.get("limit", 25)
-                )
-                return {"type": "confluence_search", "data": content}
+                if self.mcp_manager and self.mcp_manager.confluence_client:
+                    response = await self.mcp_manager.confluence_client.search_content(
+                        function_args["cql"],
+                        space_key=function_args.get("space_key")
+                    )
+                    if response.success:
+                        return {"type": "confluence_search", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    content = self.confluence.search_content(
+                        function_args["cql"], 
+                        limit=function_args.get("limit", 25)
+                    )
+                    return {"type": "confluence_search", "data": content}
                 
             elif function_name == "confluence_create_page":
-                new_page = self.confluence.create_page(
-                    function_args["space_key"],
-                    function_args["title"],
-                    function_args["content"],
-                    function_args.get("parent_page_id")
-                )
-                return {"type": "confluence_page_created", "data": new_page}
+                if self.mcp_manager and self.mcp_manager.confluence_client:
+                    response = await self.mcp_manager.confluence_client.create_page(
+                        function_args["space_key"],
+                        function_args["title"],
+                        function_args["content"],
+                        parent_page_id=function_args.get("parent_page_id")
+                    )
+                    if response.success:
+                        return {"type": "confluence_page_created", "data": response.data}
+                    else:
+                        return {"type": "error", "message": response.error}
+                else:
+                    new_page = self.confluence.create_page(
+                        function_args["space_key"],
+                        function_args["title"],
+                        function_args["content"],
+                        function_args.get("parent_page_id")
+                    )
+                    return {"type": "confluence_page_created", "data": new_page}
             
             # Java functions
             elif function_name == "java_analyze_code":

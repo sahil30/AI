@@ -28,18 +28,20 @@ An intelligent agent that integrates with issue tracking, documentation systems,
 - Context-aware responses
 - Automatic format translation between API types
 
-🔌 **Flexible API Support**
-- **Custom API Integration**: Use your own API endpoints
+🔌 **Flexible Integration Options**
+- **MCP Server Integration**: Use dedicated MCP servers for Claude Desktop compatibility
+- **Custom API Integration**: Use your own API endpoints  
 - **Standard Atlassian**: Traditional Jira/Confluence integration
 - **Automatic Adaptation**: Seamless switching between API types
-- **Endpoint Customization**: Configure your API structure
+- **Claude Desktop Ready**: First-class MCP protocol support
 
 ## Requirements
 
 - Python 3.12+
 - OpenAI API key
-- **Either**: Your custom API (base URL + API key)
-- **Or**: Atlassian API access (username + API tokens)
+- **Option 1**: MCP servers for Claude Desktop integration
+- **Option 2**: Your custom API (base URL + API key)
+- **Option 3**: Atlassian API access (username + API tokens)
 
 ## Installation
 
@@ -56,21 +58,34 @@ cp .env.example .env
 
 4. Edit `.env` with your credentials:
 
-**Option A: Using Your Custom API**
+**Option 1: Using MCP Servers (Recommended for Claude Desktop)**
 ```bash
-# Custom API Configuration
-API_BASE_URL=https://your-api-domain.com
-API_KEY=your-custom-api-key
-API_VERSION=v1
-USE_CUSTOM_API=true
+# MCP Server Configuration
+USE_MCP_SERVERS=true
+MCP_JIRA_SERVER_PATH=/absolute/path/to/mcp-jira-python
+MCP_CONFLUENCE_SERVER_PATH=/absolute/path/to/mcp-confluence-python
 
 # OpenAI Configuration
 OPENAI_API_KEY=your-openai-api-key
 ```
 
-**Option B: Using Standard Atlassian APIs**
+**Option 2: Using Your Custom API**
+```bash
+# Custom API Configuration
+USE_MCP_SERVERS=false
+USE_CUSTOM_API=true
+API_BASE_URL=https://your-api-domain.com
+API_KEY=your-custom-api-key
+API_VERSION=v1
+
+# OpenAI Configuration
+OPENAI_API_KEY=your-openai-api-key
+```
+
+**Option 3: Using Standard Atlassian APIs**
 ```bash
 # Standard Atlassian Configuration
+USE_MCP_SERVERS=false
 USE_CUSTOM_API=false
 JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_USERNAME=your-email@example.com
@@ -84,6 +99,28 @@ OPENAI_API_KEY=your-openai-api-key
 ```
 
 ## Usage
+
+### MCP Server Integration
+
+When using MCP servers, the AI agent automatically manages server lifecycle:
+
+```python
+import asyncio
+from src.agent import AIAgent
+
+async def main():
+    # Agent automatically starts/stops MCP servers
+    async with AIAgent() as agent:
+        result = await agent.process_command("Get issue DEMO-123")
+        print(result)
+
+asyncio.run(main())
+```
+
+Or run the MCP example:
+```bash
+python examples/mcp_usage_example.py
+```
 
 ### Interactive Mode
 

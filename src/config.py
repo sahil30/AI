@@ -35,11 +35,21 @@ class OpenAIConfig(BaseSettings):
     class Config:
         env_prefix = "OPENAI_"
 
+class MCPConfig(BaseSettings):
+    enabled: bool = True
+    jira_server_path: Optional[str] = None
+    confluence_server_path: Optional[str] = None
+    timeout_seconds: int = 30
+    
+    class Config:
+        env_prefix = "MCP_"
+
 class AgentConfig(BaseSettings):
     log_level: str = "INFO"
     max_retries: int = 3
     timeout_seconds: int = 30
     use_custom_api: bool = True
+    use_mcp_servers: bool = False
     
     class Config:
         env_prefix = ""  # These can come from any prefix
@@ -49,6 +59,7 @@ config_instance = None
 class Config:
     def __init__(self):
         self.use_custom_api = os.getenv('USE_CUSTOM_API', 'true').lower() == 'true'
+        self.use_mcp_servers = os.getenv('USE_MCP_SERVERS', 'false').lower() == 'true'
         
         if self.use_custom_api:
             self.api = CustomAPIConfig()
@@ -58,6 +69,7 @@ class Config:
         self.confluence = ConfluenceConfig()
         self.openai = OpenAIConfig()
         self.agent = AgentConfig()
+        self.mcp = MCPConfig()
     
     def validate(self):
         # Always require OpenAI API key
