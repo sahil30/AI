@@ -45,6 +45,19 @@ An intelligent agent that integrates with issue tracking, documentation systems,
 
 ## Installation
 
+### Quick Setup (Recommended)
+
+**Linux/macOS:**
+```bash
+./setup.sh
+```
+
+**Windows:**
+```bash
+setup.bat
+```
+
+**Manual Setup:**
 1. Clone or download the project
 2. Install dependencies:
 ```bash
@@ -122,11 +135,34 @@ Or run the MCP example:
 python examples/mcp_usage_example.py
 ```
 
+### Quick Run Script
+
+Use the convenient run script for common operations:
+
+```bash
+# Interactive mode
+python run.py interactive
+
+# Execute single command
+python run.py execute "Get issue DEMO-123"
+
+# Test connection
+python run.py test
+
+# Validate configuration
+python run.py validate
+
+# Show examples
+python run.py examples
+```
+
 ### Interactive Mode
 
 Start the interactive shell:
 ```bash
 python -m src.main interactive
+# OR
+python run.py interactive
 ```
 
 Then use natural language commands (works with both API types):
